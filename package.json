@@ -1,0 +1,23 @@
+{
+  "name": "server",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "dependencies": {
+    "connect": "^3.7.0",
+    "cors": "^2.8.5",
+    "express": "^4.17.1",
+    "file-type": "^14.2.0",
+    "gridfs-stream": "^1.1.1",
+    "mongoose": "^5.9.10",
+    "socket.io": "^2.3.0",
+    "ws": "^7.2.5"
+  },
+  "devDependencies": {},
+  "scripts": {
+    "start": "node index.js",
+    "heroku-postbuild": "cd chat-client && npm install && npm run build"
+  },
+  "author": "",
+  "license": "ISC"
+}
