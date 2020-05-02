@@ -72,7 +72,6 @@ async function start() {
               const messageData = new MessageWork({
                 userName: message.userName,
                 messageText: message.messageText,
-                // file: message.file,
                 doc_id: uploadedFile._id,
                 length: uploadedFile.length,
                 name: message.fileName,
@@ -80,20 +79,19 @@ async function start() {
                 file_link: `http://localhost:5000/download?document_id=${uploadedFile._id}`
               });
               res = await messageData.save();
-              io.to(room).emit('chat message', [res]);
+              io.to(room).emit('chat message', res);
             } else {
               const messageData = new MessageFlud({
-                userName: user,
+                userName: message.userName,
                 messageText: message.messageText,
-                // file: message.file,
                 doc_id: uploadedFile._id,
                 length: uploadedFile.length,
-                name: uploadedFile.name,
-                type: uploadedFile.contentType,
+                name: message.fileName,
+                type: message.fileType,
                 file_link: `http://localhost:5000/download?document_id=${uploadedFile._id}`
               });
               res = await messageData.save();
-              io.to(room).emit('chat message', [res]);
+              io.to(room).emit('chat message', res);
             }
           });
           writeStream.write(message.file)
@@ -105,14 +103,14 @@ async function start() {
               messageText: message.messageText,
             });
             res = await messageData.save();
-            io.to(room).emit('chat message', [res]);
+            io.to(room).emit('chat message', res);
           } else {
             const messageData = new MessageFlud({
               userName: message.userName,
               messageText: message.messageText,
             });
             res = await messageData.save();
-            io.to(room).emit('chat message', [res]);
+            io.to(room).emit('chat message', res);
           }
         }
       });
@@ -161,22 +159,24 @@ async function start() {
         id
       } = req.params;
       MessageWork.findOneAndRemove({_id: id}, (err, message) => {
-        if(err) {
-          res.send('error removing')
-        } else {
-          if (message.doc_id) {
-            gfs.findOne({
-              _id: message.doc_id
-            }, (err, file) => {
-              if (!file) {
-                return res.status(404).send({
-                  message: 'File was not found'
-                });
-              }
-              gfs.remove({ _id: file._id });
-            });
+        if (message) {
+          if(err) {
+            res.send('error removing')
+          } else {
+            if (message.doc_id) {
+              gfs.findOne({
+                _id: message.doc_id
+              }, (err, file) => {
+                if (!file) {
+                  return res.status(404).send({
+                    message: 'File was not found'
+                  });
+                }
+                gfs.remove({ _id: file._id });
+              });
+            }
+            res.status(200).send(message);
           }
-          res.status(200).send(message);
         }
       });
       
