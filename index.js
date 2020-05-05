@@ -18,7 +18,7 @@ app.use(express.json());
 app.use(express.static(path.join(__dirname, 'chat-client/build')));
 
 
-app.get('*', (req, res) => {
+app.get('/', (req, res) => {
   res.sendFile(path.join(__dirname+'/chat-client/build/index.html'));
 });
 
@@ -76,7 +76,7 @@ async function start() {
                 length: uploadedFile.length,
                 name: message.fileName,
                 type: message.fileType,
-                file_link: `http://localhost:5000/download?document_id=${uploadedFile._id}`
+                file_link: `/download?document_id=${uploadedFile._id}`
               });
               res = await messageData.save();
               io.to(room).emit('chat message', res);
@@ -88,7 +88,7 @@ async function start() {
                 length: uploadedFile.length,
                 name: message.fileName,
                 type: message.fileType,
-                file_link: `http://localhost:5000/download?document_id=${uploadedFile._id}`
+                file_link: `/download?document_id=${uploadedFile._id}`
               });
               res = await messageData.save();
               io.to(room).emit('chat message', res);
