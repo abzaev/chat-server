@@ -4,6 +4,7 @@ const http = require("http");
 const socketIo = require("socket.io");
 const cors = require('cors');
 const path = require('path');
+const contentDisposition = require('content-disposition');
 const MessageWork = require('./models/messageWork');
 const MessageFlud = require('./models/messageFlud');
 const port = process.env.PORT || 5000;
@@ -140,7 +141,7 @@ async function start() {
           let type = await fileType.fromBuffer(data);
           res.writeHead(200, {
             'Content-Type': type.mime,
-            'Content-disposition': 'attachment; filename=' + file.filename + '.' + type.ext,
+            'Content-disposition': contentDisposition(file.filename),
             'Content-Length': file.length
           });
           res.end(data);
