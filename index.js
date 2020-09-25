@@ -9,6 +9,7 @@ const MessageWork = require('./models/messageWork');
 const MessageFlud = require('./models/messageFlud');
 const port = process.env.PORT || 5000;
 const passport = require('passport');
+const jwt = require('jsonwebtoken');
 
 require('./auth');
 
@@ -22,34 +23,35 @@ app.use(express.json());
 app.use(express.static(path.join(__dirname, 'chat-client/build')));
 
 app.post('/signup', passport.authenticate('signup', { session : false }) , async (req, res, next) => {
-  console.log(req.user)
   res.json({
     message : 'Signup successful',
     user : req.user
   });
 });
-
+// 
 app.post('/login', async (req, res, next) => {
-  passport.authenticate('login', async (err, user, info) => {
-    try {
-      if(err || !user){
-        const error = new Error('An Error occurred')
+    passport.authenticate('login', async (err, user, info) => {
+      try {
+        if(err || !user){
+          const error = new Error('An Error occurred')
+          return next(error);
+        }
+        req.login(user, { session : false }, async (error) => {
+          if( error ) return next(error)
+          //We don't want to store the sensitive information such as the
+          //user password in the token so we pick only the login and id
+          const body = { _id : user._id, login : user.login };
+          //Sign the JWT token and populate the payload with the user login and id
+          const token = jwt.sign({ user : body },'top_secret');
+          //Send back the token to the user
+          // res.cookie('jwt', token, { maxAge: 10000, httpOnly: true });
+          res.cookie('jwt', token);
+          return res.json({ token });
+        });
+      } catch (error) {
         return next(error);
       }
-      req.login(user, { session : false }, async (error) => {
-        if( error ) return next(error)
-        //We don't want to store the sensitive information such as the
-        //user password in the token so we pick only the login and id
-        const body = { _id : user._id, login : user.login };
-        //Sign the JWT token and populate the payload with the user login and id
-        const token = jwt.sign({ user : body },'top_secret');
-        //Send back the token to the user
-        return res.json({ token });
-      });
-    } catch (error) {
-      return next(error);
-    }
-  })(req, res, next);
+    })(req, res, next);
 });
 
 app.get('/', (req, res) => {
@@ -151,14 +153,16 @@ async function start() {
       });
     });
 
-    app.get('/download', (req, res, next) => {
-      passport.authenticate('jwt', { session : false }, (err, user, info) => {
+    app.get('/download',
+      passport.authenticate('jwt', { session : false }),
+      async (req, res, next) => {
         const {
           document_id
         } = req.query;
         gfs.findOne({
           _id: document_id
-        }, (err, file) => {
+        },
+        (err, file) => {
           if (!file) {
             return res.status(404).send({
               message: 'File was not found'
@@ -188,11 +192,11 @@ async function start() {
             });
           });
         });
-      })(req, res, next);
-    });
+      });
 
-    app.delete('/messagework/:id', async (req, res, next) => {
-      passport.authenticate('jwt', { session : false }, async (err, user, info) => {
+    app.delete('/messagework/:id',
+      passport.authenticate('jwt', { session : false }),
+      async (req, res, next) => {
         const {
           id
         } = req.params;
@@ -217,11 +221,11 @@ async function start() {
             }
           }
         });
-      })(req, res, next);
-    });
+      });
 
-    app.delete('/messageflud/:id', async (req, res, next) => {
-      passport.authenticate('jwt', { session : false }, async (err, user, info) => {
+    app.delete('/messageflud/:id',
+      passport.authenticate('jwt', { session : false }),
+      async (req, res, next) => {
         const {
           id
         } = req.params;
@@ -244,11 +248,11 @@ async function start() {
             res.status(200).send(message);
           }
         });
-      })(req, res, next);
-    });
+      });
 
-    app.put('/messageflud/:id', async (req, res, next) => {
-      passport.authenticate('jwt', { session : false }, async (err, user, info) => {
+    app.put('/messageflud/:id',
+      passport.authenticate('jwt', { session : false }),
+      async (req, res, next) => {
         const {
           id
         } = req.params;
@@ -263,11 +267,11 @@ async function start() {
           }
         );
         res.send(changedMessage);
-      })(req, res, next);
-    });
+      });
 
-    app.put('/messagework/:id', async (req, res, next) => {
-      passport.authenticate('jwt', { session : false }, async (err, user, info) => {
+    app.put('/messagework/:id', 
+      passport.authenticate('jwt', { session : false }),
+      async (req, res, next) => {
         const {
           id
         } = req.params;
@@ -282,8 +286,7 @@ async function start() {
           }
         );
         res.send(changedMessage);
-      })(req, res, next);
-    });
+      });
 
     server.listen(port, () => console.log(`Listening on port ${port}`));
   } catch (error) {

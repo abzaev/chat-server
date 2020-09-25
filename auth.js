@@ -54,7 +54,7 @@ passport.use(new JWTstrategy({
   //we expect the user to send the token as a query parameter with the name 'secret_token'
   jwtFromRequest : (req) => cookieExtractor(req),
 }, async (token, done) => {
-  console.log(token)
+  // console.log(token)
   try {
     //Pass the user details to the next middleware
     return done(null, token.user);
@@ -67,7 +67,7 @@ var cookieExtractor = function(req) {
   var token = null;
   if (req && req.headers.cookie)
   {
-      token = parseCookies(req)['io'];
+      token = parseCookies(req)['jwt'];
   }
   return token;
 };
