@@ -1,7 +1,11 @@
 const { Schema, model } = require('mongoose');
 
 const messageWorkSchema = new Schema({
-  userName: {
+  userLogin: {
+    type: String,
+    required: true
+  },
+  userId: {
     type: String,
     required: true
   },
