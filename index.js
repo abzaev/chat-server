@@ -8,6 +8,10 @@ const contentDisposition = require('content-disposition');
 const MessageWork = require('./models/messageWork');
 const MessageFlud = require('./models/messageFlud');
 const port = process.env.PORT || 5000;
+const passport = require('passport');
+const jwt = require('jsonwebtoken');
+
+require('./auth');
 
 const Grid = require('gridfs-stream');
 const fileType = require('file-type');
@@ -18,18 +22,62 @@ app.use(cors());
 app.use(express.json());
 app.use(express.static(path.join(__dirname, 'chat-client/build')));
 
+app.get(
+  '/auth',
+  async (req, res, next) => {
+    passport.authenticate(
+      'jwt',
+      async (err, user, info) => {
+        try {
+          if (err || !user) {
+            const error = new Error('An error occurred.');
 
-app.get('/', (req, res) => {
-  res.sendFile(path.join(__dirname+'/chat-client/build/index.html'));
+            return next(error);
+          }
+          res.json(user)
+        } catch (error) {
+          return next(error);
+        }
+      }
+    )(req, res, next);
+  }
+);
+
+app.post('/signup', passport.authenticate('signup', { session : false }) , async (req, res, next) => {
+  const data = {
+    id: req.user._id,
+    login: req.user.login
+  }
+  res.json(data);
+});
+
+app.post('/login', async (req, res, next) => {
+  passport.authenticate('login', async (err, user, info) => {
+    try {
+      if(err || !user){
+        const error = new Error('An Error occurred')
+        return next(error);
+      }
+      req.login(user, { session : false }, async (error) => {
+        if( error ) return next(error)
+        const body = { id : user._id, login : user.login };
+        const token = jwt.sign({ user : body },'top_secret');
+         res.cookie('jwt', token);
+        return res.json(body);
+      });
+    } catch (error) {
+      return next(error);
+    }
+  })(req, res, next);
 });
 
 async function start() {
   try {
     await mongoose.connect(
-      // 'mongodb+srv://qwerty:qwerty12345@cluster0-dxfxz.mongodb.net/api?retryWrites=true&w=majority',
       'mongodb://arsen:3CUoIFONMpwdaM4a@cluster0-shard-00-00-mieoq.mongodb.net:27017,cluster0-shard-00-01-mieoq' +
       '.mongodb.net:27017,cluster0-shard-00-02-mieoq.mongodb.net:27017/test?ssl=true&replicaSet=Cluster0-shard-0&authSource=admin&retryWrites=true&w=majority',
         {
+        useCreateIndex: true,
         useNewUrlParser: true,
         useUnifiedTopology: true,
         useFindAndModify: false
@@ -62,16 +110,20 @@ async function start() {
 
       client.on('chat message', async (message) => {
         let res;
+        console.log(message)
         if (message.file) {
           let writeStream = gfs.createWriteStream({
             filename: message.fileName,
             mode: 'w',
             content_type: message.fileType
           });
+          writeStream.on("error", (error) => console.log(error));
+
           writeStream.on('close', async (uploadedFile) => {
             if (room === 'room0') {
               const messageData = new MessageWork({
-                userName: message.userName,
+                userLogin: message.userLogin,
+                userId: message.userId,
                 messageText: message.messageText,
                 doc_id: uploadedFile._id,
                 length: uploadedFile.length,
@@ -83,7 +135,8 @@ async function start() {
               io.to(room).emit('chat message', res);
             } else {
               const messageData = new MessageFlud({
-                userName: message.userName,
+                userLogin: message.userLogin,
+                userId: message.userId,
                 messageText: message.messageText,
                 doc_id: uploadedFile._id,
                 length: uploadedFile.length,
@@ -100,14 +153,16 @@ async function start() {
         } else {
           if (room === 'room0') {
             const messageData = new MessageWork({
-              userName: message.userName,
+              userLogin: message.userLogin,
+              userId: message.userId,
               messageText: message.messageText,
             });
             res = await messageData.save();
             io.to(room).emit('chat message', res);
           } else {
             const messageData = new MessageFlud({
-              userName: message.userName,
+              userLogin: message.userLogin,
+              userId: message.userId,
               messageText: message.messageText,
             });
             res = await messageData.save();
@@ -117,131 +172,190 @@ async function start() {
       });
     });
 
-    app.get('/download', (req, res) => {
-      const {
-        document_id
-      } = req.query;
-      gfs.findOne({
-        _id: document_id
-      }, (err, file) => {
-        if (!file) {
-          return res.status(404).send({
-            message: 'File was not found'
-          });
-        }
-        let data = [];
-        let readstream = gfs.createReadStream({
-          filename: file.filename
-        });
-        readstream.on('data', (chunk) => {
-          data.push(chunk);
-        });
-        readstream.on('end', async () => {
-          data = Buffer.concat(data);
-          let type = await fileType.fromBuffer(data);
-          res.writeHead(200, {
-            'Content-Type': type.mime,
-            'Content-disposition': contentDisposition(file.filename),
-            'Content-Length': file.length
-          });
-          res.end(data);
-        });
-        readstream.on('error', (err) => {
-          // logger.error(`[*] Error, while downloading a file, with error:  ${err}`);
-          res.status(400).send({
-            message: `Error, while downloading a file, with error:  ${err}`
-          });
-        });
-      });
-    });
+    app.get('/download', async (req, res, next) => {
+      passport.authenticate('jwt', async (err, user, info) => {      
+        const {
+          document_id
+        } = req.query;
+        try {
+          if(err || !user){
+            const error = new Error('An Error occurred')
+            return next(error);
+          }
 
-    app.delete('/messagework/:id', async (req, res) => {
-      const {
-        id
-      } = req.params;
-      MessageWork.findOneAndRemove({_id: id}, (err, message) => {
-        if (message) {
-          if(err) {
-            res.send('error removing')
-          } else {
-            if (message.doc_id) {
-              gfs.findOne({
-                _id: message.doc_id
-              }, (err, file) => {
-                if (!file) {
-                  return res.status(404).send({
-                    message: 'File was not found'
-                  });
-                }
-                gfs.remove({ _id: file._id });
+          gfs.findOne({
+            _id: document_id
+          },
+          (err, file) => {
+            if (!file) {
+              return res.status(404).send({
+                message: 'File was not found'
               });
             }
-            res.status(200).send(message);
-          }
+            let data = [];
+            let readstream = gfs.createReadStream({
+              filename: file.filename
+            });
+            readstream.on('data', (chunk) => {
+              data.push(chunk);
+            });
+            readstream.on('end', async () => {
+              data = Buffer.concat(data);
+              let type = await fileType.fromBuffer(data);
+              res.writeHead(200, {
+                'Content-Type': type.mime,
+                'Content-disposition': contentDisposition(file.filename),
+                'Content-Length': file.length
+              });
+              res.end(data);
+            });
+            console.log()
+            readstream.on('error', (err) => {
+              res.status(400).send({
+                message: `Error, while downloading a file, with error:  ${err}`
+              });
+            });
+          });
+        } catch (error) {
+          return next(error);
         }
-      });
-      
+      })(req, res, next)
     });
 
-    app.delete('/messageflud/:id', async (req, res) => {
-      const {
-        id
-      } = req.params;
-      await MessageFlud.findOneAndRemove({_id: id}, (err, message) => {
-        if(err) {
-          res.send('error removing')
-        } else {
-          if (message.doc_id) {
-            gfs.findOne({
-              _id: message.doc_id
-            }, (err, file) => {
-              if (!file) {
-                return res.status(404).send({
-                  message: 'File was not found'
+    app.delete('/messagework/:id', async (req, res, next) => {
+      passport.authenticate('jwt', async (err, user, info) => {
+        const {
+          id
+        } = req.params;
+        try {
+          if(err || !user){
+            const error = new Error('An Error occurred')
+            return next(error);
+          }
+
+          await MessageWork.findOneAndRemove({_id: id, userId: user.id}, (err, message) => {
+            if(err || message===null) {
+              res.send('error removing')
+            } else {
+              if (message.doc_id) {
+                gfs.findOne({
+                  _id: message.doc_id
+                }, (err, file) => {
+                  if (!file) {
+                    return res.status(404).send({
+                      message: 'File was not found'
+                    });
+                  }
+                  gfs.remove({ _id: file._id });
                 });
               }
-              gfs.remove({ _id: file._id });
-            });
+              res.status(200).send(message);
+            }
+          });
+
+        } catch (error) {
+          return next(error);
+        }
+      })(req, res, next)
+    });
+
+    app.delete('/messageflud/:id', async (req, res, next) => {
+      passport.authenticate('jwt', async (err, user, info) => {
+        const {
+          id
+        } = req.params;
+        try {
+          if(err || !user){
+            const error = new Error('An Error occurred')
+            return next(error);
           }
-          res.status(200).send(message);
+            await MessageFlud.findOneAndRemove({_id: id, userId: user.id}, (err, message) => {
+              if(err) {
+                res.send('error removing')
+              } else {
+                if (message.doc_id) {
+                  gfs.findOne({
+                    _id: message.doc_id
+                  }, (err, file) => {
+                    if (!file) {
+                      return res.status(404).send({
+                        message: 'File was not found'
+                      });
+                    }
+                    gfs.remove({ _id: file._id });
+                  });
+                }
+                res.status(200).send(message);
+              }
+            });
+        } catch (error) {
+          return next(error);
         }
-      });
+      })(req, res, next)
+    });
+
+    app.put('/messageflud/:id', async (req, res, next) => {
+      passport.authenticate('jwt', async (err, user, info) => {
+        try {
+          if(err || !user){
+            const error = new Error('An Error occurred')
+            return next(error);
+          }
+
+            const body = { id : user.id, login : user.login };
+            const {
+              id
+            } = req.params;
+            const changedMessage = await MessageFlud.findOneAndUpdate(
+              {
+                _id: id,
+                userId: body.id
+              },
+              req.body,
+              { upsert: true },
+              function(error, response) {
+                return response;
+              }
+            );
+            res.send(changedMessage);
+        } catch (error) {
+          return next(error);
+        }
+      })(req, res, next)
+    });
+
+    app.put('/messagework/:id', async (req, res, next) => {
+      passport.authenticate('jwt', async (err, user, info) => {
+        try {
+          if(err || !user){
+            const error = new Error('An Error occurred')
+            return next(error);
+          }
+          
+            const body = { id : user.id, login : user.login };
+            const {
+              id
+            } = req.params;
+            const changedMessage = await MessageWork.findOneAndUpdate(
+              {
+                _id: id,
+                userId: body.id
+              },
+              req.body,
+              { upsert: true },
+              function(error, response) {
+                return response;
+              }
+            );
+            res.send(changedMessage);
+        } catch (error) {
+          console.log('asdsad')
+
+          return next(error);
+        }
+      })(req, res, next)
+    });
       
-    });
-
-    app.put('/messageflud/:id', async (req, res) => {
-      const {
-        id
-      } = req.params;
-      const changedMessage = await MessageFlud.findOneAndUpdate(
-        {
-          _id: id
-        },
-        req.body,
-        { upsert: true },
-        function(error, response) {
-          return response;
-        }
-      );
-      res.send(changedMessage);
-    });
-
-    app.put('/messagework/:id', async (req, res) => {
-      const {
-        id
-      } = req.params;
-      const changedMessage = await MessageWork.findOneAndUpdate(
-        {
-          _id: id
-        },
-        req.body,
-        { upsert: true },
-        function(error, response) {
-          return response;
-        }
-      );
-      res.send(changedMessage);
-    });
 
     server.listen(port, () => console.log(`Listening on port ${port}`));
   } catch (error) {
