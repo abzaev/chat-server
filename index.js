@@ -9,7 +9,9 @@ const MessageWork = require('./models/messageWork');
 const MessageFlud = require('./models/messageFlud');
 const port = process.env.PORT || 5000;
 const passport = require('passport');
-const jwt = require('jsonwebtoken');
+const authRoutes = require('./routes/auth')
+const messageWorkRoutes = require('./routes/messageWork')
+const messageFludRoutes = require('./routes/messageFluld')
 
 require('./auth');
 
@@ -22,54 +24,7 @@ app.use(cors());
 app.use(express.json());
 app.use(express.static(path.join(__dirname, 'chat-client/build')));
 
-app.get(
-  '/auth',
-  async (req, res, next) => {
-    passport.authenticate(
-      'jwt',
-      async (err, user, info) => {
-        try {
-          if (err || !user) {
-            const error = new Error('An error occurred.');
-
-            return next(error);
-          }
-          res.json(user)
-        } catch (error) {
-          return next(error);
-        }
-      }
-    )(req, res, next);
-  }
-);
-
-app.post('/signup', passport.authenticate('signup', { session : false }) , async (req, res, next) => {
-  const data = {
-    id: req.user._id,
-    login: req.user.login
-  }
-  res.json(data);
-});
-
-app.post('/login', async (req, res, next) => {
-  passport.authenticate('login', async (err, user, info) => {
-    try {
-      if(err || !user){
-        const error = new Error('An Error occurred')
-        return next(error);
-      }
-      req.login(user, { session : false }, async (error) => {
-        if( error ) return next(error)
-        const body = { id : user._id, login : user.login };
-        const token = jwt.sign({ user : body },'top_secret');
-         res.cookie('jwt', token);
-        return res.json(body);
-      });
-    } catch (error) {
-      return next(error);
-    }
-  })(req, res, next);
-});
+app.use('/', authRoutes)
 
 async function start() {
   try {
@@ -89,6 +44,11 @@ async function start() {
     const gfs = Grid(conn.db);
     const server = http.createServer(app);
     const io = socketIo(server);
+    
+    app.set('gfs', gfs)
+
+    app.use('/', messageWorkRoutes)
+    app.use('/', messageFludRoutes)
 
     io.on('connection', (client) => {
       let room;
@@ -110,7 +70,6 @@ async function start() {
 
       client.on('chat message', async (message) => {
         let res;
-        console.log(message)
         if (message.file) {
           let writeStream = gfs.createWriteStream({
             filename: message.fileName,
@@ -209,7 +168,6 @@ async function start() {
               });
               res.end(data);
             });
-            console.log()
             readstream.on('error', (err) => {
               res.status(400).send({
                 message: `Error, while downloading a file, with error:  ${err}`
@@ -221,141 +179,6 @@ async function start() {
         }
       })(req, res, next)
     });
-
-    app.delete('/messagework/:id', async (req, res, next) => {
-      passport.authenticate('jwt', async (err, user, info) => {
-        const {
-          id
-        } = req.params;
-        try {
-          if(err || !user){
-            const error = new Error('An Error occurred')
-            return next(error);
-          }
-
-          await MessageWork.findOneAndRemove({_id: id, userId: user.id}, (err, message) => {
-            if(err || message===null) {
-              res.send('error removing')
-            } else {
-              if (message.doc_id) {
-                gfs.findOne({
-                  _id: message.doc_id
-                }, (err, file) => {
-                  if (!file) {
-                    return res.status(404).send({
-                      message: 'File was not found'
-                    });
-                  }
-                  gfs.remove({ _id: file._id });
-                });
-              }
-              res.status(200).send(message);
-            }
-          });
-
-        } catch (error) {
-          return next(error);
-        }
-      })(req, res, next)
-    });
-
-    app.delete('/messageflud/:id', async (req, res, next) => {
-      passport.authenticate('jwt', async (err, user, info) => {
-        const {
-          id
-        } = req.params;
-        try {
-          if(err || !user){
-            const error = new Error('An Error occurred')
-            return next(error);
-          }
-            await MessageFlud.findOneAndRemove({_id: id, userId: user.id}, (err, message) => {
-              if(err) {
-                res.send('error removing')
-              } else {
-                if (message.doc_id) {
-                  gfs.findOne({
-                    _id: message.doc_id
-                  }, (err, file) => {
-                    if (!file) {
-                      return res.status(404).send({
-                        message: 'File was not found'
-                      });
-                    }
-                    gfs.remove({ _id: file._id });
-                  });
-                }
-                res.status(200).send(message);
-              }
-            });
-        } catch (error) {
-          return next(error);
-        }
-      })(req, res, next)
-    });
-
-    app.put('/messageflud/:id', async (req, res, next) => {
-      passport.authenticate('jwt', async (err, user, info) => {
-        try {
-          if(err || !user){
-            const error = new Error('An Error occurred')
-            return next(error);
-          }
-
-            const body = { id : user.id, login : user.login };
-            const {
-              id
-            } = req.params;
-            const changedMessage = await MessageFlud.findOneAndUpdate(
-              {
-                _id: id,
-                userId: body.id
-              },
-              req.body,
-              { upsert: true },
-              function(error, response) {
-                return response;
-              }
-            );
-            res.send(changedMessage);
-        } catch (error) {
-          return next(error);
-        }
-      })(req, res, next)
-    });
-
-    app.put('/messagework/:id', async (req, res, next) => {
-      passport.authenticate('jwt', async (err, user, info) => {
-        try {
-          if(err || !user){
-            const error = new Error('An Error occurred')
-            return next(error);
-          }
-          
-            const body = { id : user.id, login : user.login };
-            const {
-              id
-            } = req.params;
-            const changedMessage = await MessageWork.findOneAndUpdate(
-              {
-                _id: id,
-                userId: body.id
-              },
-              req.body,
-              { upsert: true },
-              function(error, response) {
-                return response;
-              }
-            );
-            res.send(changedMessage);
-        } catch (error) {
-          console.log('asdsad')
-
-          return next(error);
-        }
-      })(req, res, next)
-    });
-      
 
     server.listen(port, () => console.log(`Listening on port ${port}`));
   } catch (error) {
